@@ -23,17 +23,25 @@ enum SnorlaxSerializationError : ErrorType {
 
 public protocol SnorlaxSerializable {
   func asData() throws -> NSData
-  //func contentDisposition(fileName: String) -> String
-  //func contentType() -> String
+  var contentType : String { get }
 }
 
 extension String : SnorlaxSerializable {
   public func asData() throws -> NSData {
+    return try snorlaxEncode()
+  }
+
+  public var contentType : String {
+    return "text/plain"
+  }
+}
+
+extension String {
+  func snorlaxEncode() throws -> NSData {
     if let encoded = dataUsingEncoding(NSUTF8StringEncoding) {
       return encoded
-    } else {
-      throw SnorlaxSerializationError.TextError
     }
+    throw SnorlaxSerializationError.TextError
   }
 }
 
@@ -55,11 +63,19 @@ extension Dictionary : SnorlaxSerializable {
       throw error
     }
   }
+
+  public var contentType : String {
+    return "application/json"
+  }
 }
 
 extension NSData : SnorlaxSerializable {
   public func asData() throws -> NSData {
     return self
+  }
+
+  public var contentType : String {
+    return "application/octet-stream"
   }
 }
 
@@ -69,6 +85,10 @@ extension NSData : SnorlaxSerializable {
       // TODO: for iOS
       fatalError("Not yet implemented")
       return NSData()
+    }
+
+    public var contentType : String {
+      return "image/png"
     }
   }
 #elseif os(OSX)
@@ -84,6 +104,10 @@ extension NSData : SnorlaxSerializable {
       } else {
         throw SnorlaxSerializationError.ImageError
       }
+    }
+
+    public var contentType : String {
+      return "image/png"
     }
   }
 #endif

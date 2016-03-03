@@ -9,14 +9,21 @@
 import Foundation
 
 public typealias SuccessHandler = ([NSObject : AnyObject], NSURLResponse?) -> Void
-public typealias FailureHandler = SnorlaxError -> ()
+public typealias FailureHandler = SnorlaxError -> Void
 
 
 public enum SnorlaxError {
-  case DataError
+  case DataSerializationError
   case ForbiddenHeaderError(String)
   case JSONSerializationError
-  case NetworkError(NSError?)
+  case NetworkError(NSError)
+  case NoDataReturnedError
+}
+
+public struct FormDataObject {
+  let data : SnorlaxSerializable
+  let name : String
+  let fileName : String
 }
 
 public class RestClient {
@@ -24,6 +31,7 @@ public class RestClient {
   internal let session : NSURLSession
   internal let forbiddenHeadersSet = Set(["Authorization", "Connection", "Host", "WWW-Authenticate"])
   internal let forbiddenContentLengthKey = "Content-Length"
+  internal static let boundary = "SNORLAX-FORM-BOUNDARY"
 
   init() {
     let configuration = NSURLSessionConfiguration.defaultSessionConfiguration()
@@ -40,9 +48,29 @@ public class RestClient {
 
   func makePOSTRequest(url: NSURL, headers: [String : String], data: SnorlaxSerializable, success: SuccessHandler,
     failure: FailureHandler) {
-      // TODO: build data properly
-      // This means properly handling multi-part forms
-      makeRequest(url, type: .POST, headers: headers, dataBuilder: data.asData, success: success, failure: failure)
+      var h1 = headers
+      h1.updateValue(data.contentType, forKey: "Content-Type")
+      makeRequest(url, type: .POST, headers: h1, dataBuilder: data.asData, success: success, failure: failure)
+  }
+
+  func makeMultiPartPOSTRequest(url: NSURL, headers: [String : String], data: [FormDataObject], success: SuccessHandler,
+    failure: FailureHandler) {
+      // data builder
+      let dataBuilder : () throws -> NSData = {
+        let buffer = NSMutableData()
+        for item in data {
+          try buffer.appendData("--\(RestClient.boundary)\r\n".snorlaxEncode())
+          try buffer.appendData("Content-Disposition: form-data; name=\"\(item.name)\"; filename=\"\(item.fileName)\"\r\n".snorlaxEncode())
+          try buffer.appendData("Content-Type: \(item.data.contentType)\r\n\r\n".snorlaxEncode())
+          try buffer.appendData(item.data.asData())
+          try buffer.appendData("\r\n".snorlaxEncode())
+        }
+        try buffer.appendData("--\(RestClient.boundary)--\r\n".snorlaxEncode())
+        return buffer
+      }
+      var h1 = headers
+      h1.updateValue("multipart/form-data; boundary=\(RestClient.boundary)", forKey: "Content-Type")
+      makeRequest(url, type: .POST, headers: h1, dataBuilder: dataBuilder, success: success, failure: failure)
   }
 
   func makeDELETERequest(url: NSURL, headers: [String : String], success: SuccessHandler, failure: FailureHandler) {
@@ -57,7 +85,7 @@ public class RestClient {
         do {
           request.HTTPBody = try dataBuilder()
         } catch {
-          failure(.DataError)
+          failure(.DataSerializationError)
         }
       }
       if let headers = headers {
@@ -77,8 +105,25 @@ public class RestClient {
 
   internal static func callback(success: SuccessHandler, _ failure: FailureHandler, _ data: NSData?,
     _ response: NSURLResponse?, _ error: NSError?) {
-      // TODO: do stuff with response
-      // I wish I hadn't saved over this file.
+      if let error = error {
+        // Request failed with an error
+        failure(.NetworkError(error))
+      } else if let data = data {
+        // Try turning data back into JSON
+        do {
+          let data = try NSJSONSerialization.JSONObjectWithData(data, options: [])
+          if let data = data as? [String : AnyObject] {
+            success(data, response)
+          } else {
+            failure(.JSONSerializationError)
+          }
+        } catch {
+          failure(.JSONSerializationError)
+        }
+      } else {
+        // No error, but no data returned either
+        failure(.NoDataReturnedError)
+      }
   }
 
 }
