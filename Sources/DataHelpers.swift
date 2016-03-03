@@ -21,6 +21,7 @@ enum SnorlaxSerializationError : ErrorType {
   case OtherError
 }
 
+/// A protocol describing types which can serialize themselves as MIME content.
 public protocol SnorlaxSerializable {
   func asData() throws -> NSData
   var contentType : String { get }
@@ -76,6 +77,20 @@ extension NSData : SnorlaxSerializable {
 
   public var contentType : String {
     return "application/octet-stream"
+  }
+}
+
+/// A data wrapper intended to present a raw NSData value in the context of a custom MIME content type.
+public struct DataWrapper : SnorlaxSerializable {
+  private let data : NSData
+  public let contentType : String
+
+  public func asData() throws -> NSData {
+    return data
+  }
+
+  init(_ data: NSData, contentType: String) {
+    self.data = data; self.contentType = contentType
   }
 }
 
